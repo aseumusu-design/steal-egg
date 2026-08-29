@@ -1,298 +1,218 @@
--- ================================================================
---  TAMBAHAN: ESP TELUR + STEAL EGG
---  Menambahkan tombol "Steal Egg" dan ESP telur di UI Orion.
--- ================================================================
+-- ============================================================
+--  DETEKTOR REMOTE + AUTO FARM CLAIM RARITY (UNIVERSAL)
+--  Scan semua remote, copy path ke clipboard, dan auto-execute
+-- ============================================================
 
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
-local WS = game:GetService("Workspace")
 local RS = game:GetService("ReplicatedStorage")
+local WS = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 
--- Fungsi bantu execute remote
-local function executeRemote(path, args)
-    local obj = nil
-    local function getObject(p)
-        local parts = {}
-        for part in string.gmatch(p, "[^%.]+") do table.insert(parts, part) end
-        local cur = game
-        for i, part in ipairs(parts) do
-            if i == 1 and part == "ReplicatedStorage" then cur = RS
-            elseif i == 1 and part == "Workspace" then cur = WS
-            elseif i == 1 and part == "Players" then cur = Players
-            else
-                local child = cur:FindFirstChild(part)
-                if child then cur = child else return nil end
-            end
+-- ========== 1. DETEKSI SEMUA REMOTE ==========
+local allRemotes = {}
+local remotePaths = {}
+
+local function scanForRemotes(parent)
+    for _, child in pairs(parent:GetChildren()) do
+        if child:IsA("RemoteEvent") or child:IsA("RemoteFunction") then
+            local path = child:GetFullName()
+            table.insert(allRemotes, child)
+            table.insert(remotePaths, path)
         end
-        return cur
+        scanForRemotes(child)
     end
-    obj = getObject(path)
-    if not obj then warn("Remote tidak ditemukan: " .. path); return false end
-    if obj:IsA("RemoteEvent") then
-        pcall(function() obj:FireServer(unpack(args or {})) end)
-        return true
-    elseif obj:IsA("RemoteFunction") then
-        pcall(function() obj:InvokeServer(unpack(args or {})) end)
-        return true
+end
+
+-- Scan dari berbagai root
+scanForRemotes(game)
+scanForRemotes(RS)
+scanForRemotes(WS)
+scanForRemotes(Players)
+
+print("Total remote ditemukan: " .. #remotePaths)
+
+-- Copy ke clipboard
+local function copyToClipboard(text)
+    if setclipboard then
+        pcall(setclipboard, text)
+        print("✅ Clipboard berisi " .. #remotePaths .. " path remote.")
+    elseif toclipboard then
+        pcall(toclipboard, text)
+        print("✅ Clipboard berisi " .. #remotePaths .. " path remote.")
     else
-        return false
+        print("⚠️ Clipboard tidak support, tapi daftar ada di console.")
     end
 end
 
--- ==================== CARI WINDOW ORION ====================
-local window = nil
-local function findOrionWindow()
-    local coreGui = game:GetService("CoreGui")
-    local marv = coreGui:FindFirstChild("MarV")
-    if marv then
-        for _, child in ipairs(marv:GetChildren()) do
-            if child:IsA("Frame") and child.AbsoluteSize.X > 200 then
-                window = child
-                return
-            end
+-- Gabungkan semua path dengan newline
+local allPathsText = table.concat(remotePaths, "\n")
+copyToClipboard(allPathsText)
+
+-- Tampilkan di console (untuk jaga-jaga)
+print("========== DAFTAR REMOTE ==========")
+for i, p in ipairs(remotePaths) do
+    print(i .. ". " .. p)
+end
+print("========== TOTAL: " .. #remotePaths .. " ==========")
+
+-- ========== 2. AUTO FARM CLAIM RARITY ==========
+-- Cari remote yang berisi kata kunci tertentu
+local keywords = {"claim", "reward", "rarity", "egg", "pet", "collect", "redeem", "prize", "chest", "open"}
+local targetRemotes = {}
+
+for _, remote in ipairs(allRemotes) do
+    local name = remote.Name:lower()
+    local path = remote:GetFullName():lower()
+    for _, kw in ipairs(keywords) do
+        if name:find(kw) or path:find(kw) then
+            table.insert(targetRemotes, remote)
+            break
         end
     end
 end
-findOrionWindow()
-task.wait(0.5)
-findOrionWindow()
 
-if not window then
-    -- Jika window tidak ditemukan, buat window baru
-    local OrionLib = OrionLib or loadstring(game:HttpGet("https://raw.githubusercontent.com/Marpiii/UiLib/refs/heads/main/source.lua"))()
-    window = OrionLib:MakeWindow({
-        Name = "NO MERCY + EXTRA",
-        HidePremium = false,
-        SaveConfig = true,
-        ConfigFolder = "NoMercyExtra",
-        IntroEnabled = false,
-        Icon = "rbxassetid://113381647185328",
-    })
-end
+print("Remote untuk auto farm: " .. #targetRemotes .. " ditemukan.")
 
--- ==================== BUAT TAB UNTUK STEAL EGG ====================
-local stealTab = window:MakeTab({ Name = "Steal Egg", Icon = "rbxassetid://7734056608", PremiumOnly = false })
-local stealSec = stealTab:AddSection({ Name = "Aksi Mencuri Telur" })
-
--- Tombol untuk mencuri telur dari pemain terdekat
-stealSec:AddButton({
-    Name = "Steal Egg dari Pemain Terdekat",
-    Callback = function()
-        local char = LP.Character
-        if not char then return end
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if not root then return end
-        
-        local targetPlayer = nil
-        local minDist = math.huge
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LP then
-                local tChar = player.Character
-                if tChar and tChar:FindFirstChild("HumanoidRootPart") then
-                    local dist = (tChar.HumanoidRootPart.Position - root.Position).Magnitude
-                    if dist < minDist then
-                        minDist = dist
-                        targetPlayer = player
-                    end
-                end
-            end
-        end
-        
-        if targetPlayer then
-            -- Coba remote untuk mencuri telur
-            -- Beberapa kemungkinan remote:
-            -- 1. AskFieldEggCarry (membawa telur dari pemain lain)
-            -- 2. FieldEggCarry (event)
-            -- 3. Mungkin ada remote khusus untuk steal
-            local success = false
-            -- Coba beberapa remote yang mungkin
-            local remotesToTry = {
-                "ReplicatedStorage.Packages.Networking.RF/EggWorld/AskFieldEggCarry",
-                "ReplicatedStorage.Packages.Networking.RE/EggWorld/FieldEggCarry",
-                "ReplicatedStorage.Packages.Networking.RF/EggWorld/AskWearTool",
-            }
-            for _, path in ipairs(remotesToTry) do
-                local ok = executeRemote(path, {targetPlayer})
-                if ok then
-                    print("✅ Mencuri telur dari " .. targetPlayer.Name .. " menggunakan " .. path)
-                    success = true
-                    break
-                end
-            end
-            if not success then
-                print("⚠️ Gagal mencuri telur, coba remote lain.")
-            end
-        else
-            print("⚠️ Tidak ada pemain di dekatmu.")
-        end
-    end
-})
-
--- Tombol untuk mengambil semua telur dari semua pemain
-stealSec:AddButton({
-    Name = "Steal Egg dari SEMUA Pemain",
-    Callback = function()
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LP then
-                local success = executeRemote("ReplicatedStorage.Packages.Networking.RF/EggWorld/AskFieldEggCarry", {player})
-                if success then
-                    print("✅ Mencuri telur dari " .. player.Name)
-                end
-                task.wait(0.1)
-            end
-        end
-    end
-})
-
--- Tombol untuk menjatuhkan telur (jika perlu)
-stealSec:AddButton({
-    Name = "Drop Egg (Jatuhkan Telur)",
-    Callback = function()
-        executeRemote("ReplicatedStorage.Packages.Networking.RF/EggWorld/AskFieldEggDrop", {})
-    end
-})
-
--- ==================== TAMBAHKAN ESP TELUR DI TAB ESP ====================
--- Cari tab ESP yang sudah ada (dari script sebelumnya)
-local espTab = nil
-for _, tab in pairs(window.Tabs or {}) do
-    if tab.Name == "ESP" then
-        espTab = tab
-        break
+-- Fungsi untuk menjalankan remote (FireServer/InvokeServer)
+local function fireRemote(remote)
+    if remote:IsA("RemoteEvent") then
+        pcall(remote.FireServer, remote)
+    elseif remote:IsA("RemoteFunction") then
+        pcall(remote.InvokeServer, remote)
     end
 end
 
-if espTab then
-    -- Tambahkan toggle khusus untuk ESP telur
-    local espSec = espTab:AddSection({ Name = "ESP Telur" })
-    local eggESPEnabled = false
-    local eggESPLoop = nil
-    
-    espSec:AddToggle({
-        Name = "ESP Telur (Highlight)",
-        Default = false,
-        Callback = function(v)
-            eggESPEnabled = v
-            if eggESPEnabled then
-                if eggESPLoop then eggESPLoop:Disconnect() end
-                eggESPLoop = RunService.RenderStepped:Connect(function()
-                    for _, obj in pairs(WS:GetDescendants()) do
-                        if obj:IsA("Model") and (obj.Name:lower():find("egg") or obj.Name:lower():find("telur")) then
-                            if obj:FindFirstChild("HumanoidRootPart") then
-                                local hrp = obj.HumanoidRootPart
-                                local hl = Instance.new("Highlight")
-                                -- Warna berdasarkan rarity
-                                local rarity = "common"
-                                if obj.Name:lower():find("legendary") then rarity = "legendary"
-                                elseif obj.Name:lower():find("mythic") then rarity = "mythic"
-                                elseif obj.Name:lower():find("secret") then rarity = "secret"
-                                elseif obj.Name:lower():find("epic") then rarity = "epic"
-                                elseif obj.Name:lower():find("rare") then rarity = "rare"
-                                elseif obj.Name:lower():find("uncommon") then rarity = "uncommon"
-                                end
-                                local colors = {
-                                    common = Color3.fromRGB(255,255,255),
-                                    uncommon = Color3.fromRGB(0,255,0),
-                                    rare = Color3.fromRGB(0,150,255),
-                                    epic = Color3.fromRGB(200,0,255),
-                                    legendary = Color3.fromRGB(255,150,0),
-                                    mythic = Color3.fromRGB(255,0,0),
-                                    secret = Color3.fromRGB(255,215,0),
-                                }
-                                hl.FillColor = colors[rarity] or Color3.fromRGB(255,255,255)
-                                hl.OutlineColor = Color3.fromRGB(255,255,255)
-                                hl.Adornee = hrp
-                                hl.Parent = hrp
-                                game:GetService("Debris"):AddItem(hl, 0.2)
-                            end
-                        end
-                    end
-                end)
-            else
-                if eggESPLoop then eggESPLoop:Disconnect(); eggESPLoop = nil end
+-- Auto farm loop (jalankan semua remote target dengan delay)
+local farmRunning = false
+local farmThread = nil
+
+local function startAutoFarm()
+    if farmRunning then return end
+    farmRunning = true
+    print("🔄 Auto Farm CLAIM RARITY dimulai...")
+    farmThread = task.spawn(function()
+        while farmRunning do
+            for _, remote in ipairs(targetRemotes) do
+                if not farmRunning then break end
+                fireRemote(remote)
+                task.wait(0.2)
             end
+            task.wait(1)
         end
-    })
-else
-    -- Jika tab ESP tidak ada, buat tab baru
-    local espTabNew = window:MakeTab({ Name = "ESP Telur", Icon = "rbxassetid://7733774602", PremiumOnly = false })
-    local espSecNew = espTabNew:AddSection({ Name = "ESP Telur" })
-    local eggESPEnabled = false
-    local eggESPLoop = nil
-    espSecNew:AddToggle({
-        Name = "ESP Telur (Highlight)",
-        Default = false,
-        Callback = function(v)
-            eggESPEnabled = v
-            if eggESPEnabled then
-                if eggESPLoop then eggESPLoop:Disconnect() end
-                eggESPLoop = RunService.RenderStepped:Connect(function()
-                    for _, obj in pairs(WS:GetDescendants()) do
-                        if obj:IsA("Model") and (obj.Name:lower():find("egg") or obj.Name:lower():find("telur")) then
-                            if obj:FindFirstChild("HumanoidRootPart") then
-                                local hrp = obj.HumanoidRootPart
-                                local hl = Instance.new("Highlight")
-                                local rarity = "common"
-                                if obj.Name:lower():find("legendary") then rarity = "legendary"
-                                elseif obj.Name:lower():find("mythic") then rarity = "mythic"
-                                elseif obj.Name:lower():find("secret") then rarity = "secret"
-                                elseif obj.Name:lower():find("epic") then rarity = "epic"
-                                elseif obj.Name:lower():find("rare") then rarity = "rare"
-                                elseif obj.Name:lower():find("uncommon") then rarity = "uncommon"
-                                end
-                                local colors = {
-                                    common = Color3.fromRGB(255,255,255),
-                                    uncommon = Color3.fromRGB(0,255,0),
-                                    rare = Color3.fromRGB(0,150,255),
-                                    epic = Color3.fromRGB(200,0,255),
-                                    legendary = Color3.fromRGB(255,150,0),
-                                    mythic = Color3.fromRGB(255,0,0),
-                                    secret = Color3.fromRGB(255,215,0),
-                                }
-                                hl.FillColor = colors[rarity] or Color3.fromRGB(255,255,255)
-                                hl.OutlineColor = Color3.fromRGB(255,255,255)
-                                hl.Adornee = hrp
-                                hl.Parent = hrp
-                                game:GetService("Debris"):AddItem(hl, 0.2)
-                            end
-                        end
-                    end
-                end)
-            else
-                if eggESPLoop then eggESPLoop:Disconnect(); eggESPLoop = nil end
-            end
-        end
-    })
+        print("⏹️ Auto Farm berhenti.")
+    end)
 end
 
--- ==================== TAMBAHKAN VISUAL TETAP ====================
--- Jika tab Visual belum ada, tambahkan
-local visTab = nil
-for _, tab in pairs(window.Tabs or {}) do
-    if tab.Name == "Visual" then
-        visTab = tab
-        break
+local function stopAutoFarm()
+    farmRunning = false
+    if farmThread then
+        task.cancel(farmThread)
+        farmThread = nil
     end
-end
-if not visTab then
-    visTab = window:MakeTab({ Name = "Visual", Icon = "rbxassetid://7733774602", PremiumOnly = false })
-    local visSec = visTab:AddSection({ Name = "Lighting" })
-    visSec:AddToggle({
-        Name = "Fullbright",
-        Default = false,
-        Callback = function(v)
-            game:GetService("Lighting").Brightness = v and 1 or 2
-        end
-    })
-    visSec:AddToggle({
-        Name = "No Fog",
-        Default = false,
-        Callback = function(v)
-            game:GetService("Lighting").FogEnd = v and 9999 or 100000
-        end
-    })
+    print("⏹️ Auto Farm dihentikan.")
 end
 
-print("✅ Tambahan ESP Telur & Steal Egg berhasil ditambahkan!")
-print("📌 Buka tab 'Steal Egg' untuk mencuri telur, atau tab 'ESP' untuk melihat telur.")
+-- ========== 3. GUI SIMPLE UNTUK KONTROL ==========
+local function createGUI()
+    local pg = LP:WaitForChild("PlayerGui")
+    -- Hapus GUI lama jika ada
+    local old = pg:FindFirstChild("RemoteAutoFarmGUI")
+    if old then old:Destroy() end
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "RemoteAutoFarmGUI"
+    gui.ResetOnSpawn = false
+    gui.Parent = pg
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 300, 0, 200)
+    frame.Position = UDim2.new(0.5, -150, 0.5, -100)
+    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+    frame.BackgroundTransparency = 0.1
+    frame.BorderSizePixel = 0
+    frame.Parent = gui
+    frame.Active = true
+    frame.Draggable = true
+
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -20, 0, 30)
+    title.Position = UDim2.new(0, 10, 0, 5)
+    title.BackgroundTransparency = 1
+    title.Text = "🔥 AUTO FARM CLAIM"
+    title.TextColor3 = Color3.new(1, 1, 1)
+    title.TextSize = 16
+    title.Font = Enum.Font.GothamBold
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = frame
+
+    local close = Instance.new("TextButton")
+    close.Size = UDim2.new(0, 30, 0, 30)
+    close.Position = UDim2.new(1, -35, 0, 5)
+    close.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+    close.Text = "X"
+    close.TextColor3 = Color3.new(1, 1, 1)
+    close.TextSize = 14
+    close.Font = Enum.Font.GothamBold
+    close.Parent = frame
+    close.MouseButton1Click:Connect(function() gui:Destroy() end)
+
+    local info = Instance.new("TextLabel")
+    info.Size = UDim2.new(1, -20, 0, 40)
+    info.Position = UDim2.new(0, 10, 0, 40)
+    info.BackgroundTransparency = 1
+    info.Text = "Total remote terdeteksi: " .. #remotePaths .. "\nTarget auto farm: " .. #targetRemotes
+    info.TextColor3 = Color3.new(0.8, 0.8, 0.8)
+    info.TextSize = 12
+    info.Font = Enum.Font.Gotham
+    info.TextXAlignment = Enum.TextXAlignment.Left
+    info.Parent = frame
+
+    local btnStart = Instance.new("TextButton")
+    btnStart.Size = UDim2.new(0, 120, 0, 36)
+    btnStart.Position = UDim2.new(0, 20, 1, -50)
+    btnStart.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
+    btnStart.Text = "▶ Start Farm"
+    btnStart.TextColor3 = Color3.new(1, 1, 1)
+    btnStart.TextSize = 14
+    btnStart.Font = Enum.Font.GothamBold
+    btnStart.Parent = frame
+    Instance.new("UICorner", btnStart).CornerRadius = UDim.new(0, 6)
+    btnStart.MouseButton1Click:Connect(function()
+        startAutoFarm()
+        btnStart.Text = "⏹ Stop"
+        btnStart.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+        btnStart.MouseButton1Click:Connect(function()
+            stopAutoFarm()
+            btnStart.Text = "▶ Start Farm"
+            btnStart.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
+        end)
+    end)
+
+    local btnCopy = Instance.new("TextButton")
+    btnCopy.Size = UDim2.new(0, 120, 0, 36)
+    btnCopy.Position = UDim2.new(1, -140, 1, -50)
+    btnCopy.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
+    btnCopy.Text = "📋 Copy All"
+    btnCopy.TextColor3 = Color3.new(1, 1, 1)
+    btnCopy.TextSize = 14
+    btnCopy.Font = Enum.Font.GothamBold
+    btnCopy.Parent = frame
+    Instance.new("UICorner", btnCopy).CornerRadius = UDim.new(0, 6)
+    btnCopy.MouseButton1Click:Connect(function()
+        copyToClipboard(allPathsText)
+    end)
+end
+
+-- Jalankan GUI
+task.spawn(createGUI)
+
+print("=========================================")
+print("✅ DETEKTOR + AUTO FARM AKTIF!")
+print("📌 SEMUA path remote sudah di-copy ke clipboard.")
+print("📌 GUI muncul di layar. Klik Start Farm untuk auto claim.")
+print("📌 Total remote: " .. #remotePaths)
+print("📌 Target auto farm: " .. #targetRemotes)
+print("=========================================")
