@@ -1,11 +1,10 @@
 --[[
-    Script: Floating UI Toggle No Cooldown (Slasher & Jeff)
+    Script: Floating Image UI Toggle No Cooldown (Custom Position)
     Platform: Delta Executor Mobile
 ]]
 
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
-local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
 
 -- Hapus UI lama jika ada biar nggak numpuk
@@ -19,27 +18,37 @@ screenGui.Name = "KillerBypassUI"
 screenGui.Parent = CoreGui
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
--- Membuat Floating Button (Icon Melayang)
-local toggleButton = Instance.new("TextButton")
+-- Membuat Floating ImageButton dengan posisi sesuai koordinat kamu
+local toggleButton = Instance.new("ImageButton")
 toggleButton.Name = "ToggleButton"
 toggleButton.Parent = screenGui
 toggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 toggleButton.BorderColor3 = Color3.fromRGB(255, 255, 255)
 toggleButton.BorderSizePixel = 2
-toggleButton.Position = UDim2.new(0.05, 0, 0.2, 0)
+-- Posisi disesuaikan persis ke koordinat yang kamu berikan
+toggleButton.Position = UDim2.new(0.789273262, 0, 0.78927356, 0)
 toggleButton.Size = UDim2.new(0, 55, 0, 55)
-toggleButton.Font = Enum.Font.FredokaOne
-textText = "OFF"
-toggleButton.Text = "OFF"
-toggleButton.TextColor3 = Color3.fromRGB(255, 60, 60)
-toggleButton.TextSize = 14
+toggleButton.Image = "rbxassetid://108114231850675" -- Asset ID gambar kamu
 toggleButton.Active = true
-toggleButton.Draggable = true -- Biar bisa digeser-geser posisinya di layar HP
+toggleButton.Draggable = true -- Masih bisa digeser kalau mau disesuaikan lagi
 
 -- Membuat sudut tombol jadi melengkung (UI Corner)
 local uiCorner = Instance.new("UICorner")
 uiCorner.CornerRadius = UDim.new(0, 12)
 uiCorner.Parent = toggleButton
+
+-- Indikator Status Kecil di dalam Tombol (Merah = Mati, Hijau = Hidup)
+local statusIndicator = Instance.new("Frame")
+statusIndicator.Name = "StatusIndicator"
+statusIndicator.Parent = toggleButton
+statusIndicator.AnchorPoint = Vector2.new(1, 1)
+statusIndicator.Position = UDim2.new(1, -4, 1, -4)
+statusIndicator.Size = UDim2.new(0, 14, 0, 14)
+statusIndicator.BackgroundColor3 = Color3.fromRGB(255, 60, 60) -- Merah (OFF)
+
+local indicatorCorner = Instance.new("UICorner")
+indicatorCorner.CornerRadius = UDim.new(1, 0)
+indicatorCorner.Parent = statusIndicator
 
 -- Status Aktif / Mati
 getgenv().VD = getgenv().VD or {}
@@ -142,7 +151,7 @@ local function startSlasher()
     end)
 end
 
--- Event Klik Tombol Floating
+-- Event Klik Tombol
 toggleButton.MouseButton1Click:Connect(function()
     isEnabled = not isEnabled
     
@@ -155,19 +164,15 @@ toggleButton.MouseButton1Click:Connect(function()
         startJeff()
         startSlasher()
         
-        toggleButton.Text = "ON"
-        toggleButton.TextColor3 = Color3.fromRGB(60, 255, 60)
-        toggleButton.BackgroundColor3 = Color3.fromRGB(20, 50, 20)
+        statusIndicator.BackgroundColor3 = Color3.fromRGB(60, 255, 60) -- Hijau (ON)
     else
         -- Mematikan Bypass
         VD.KILLER_InfFrenzy = false
         VD.KILLER_InfLakeMist = false
         VD.KILLER_InfPursuit = false
         
-        toggleButton.Text = "OFF"
-        toggleButton.TextColor3 = Color3.fromRGB(255, 60, 60)
-        toggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        statusIndicator.BackgroundColor3 = Color3.fromRGB(255, 60, 60) -- Merah (OFF)
     end
 end)
 
-print("[SUCCESS] Floating Menu No Cooldown Berhasil Dimuat!")
+print("[SUCCESS] Floating UI dengan Posisi Kustom Berhasil Dimuat!")
