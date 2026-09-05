@@ -1,8 +1,9 @@
 --// ============================================
---//  VD INVISIBLE V3 — FIXED GERAK & NEMBAK
-//   Metode: Underground Clone + Character Swap
-//   Real = di bawah (invisible) | Fake = dikontrol
-//   Toggle: INSERT
+--//  VD INVISIBLE V4 — FIX SEMUA BUG
+//   - Fix infinite respawn loop
+//   - Fix jatuh ke void (mati terus)
+//   - Fix nggak bisa gerak & nembak
+//   - Toggle: INSERT
 // ============================================
 
 local Players = game:GetService("Players")
@@ -14,13 +15,13 @@ local localPlayer = Players.LocalPlayer
 local isInvisible = false
 local fakeCharacter = nil
 local realCharacter = nil
-local renderConnection = nil
-local charAddedConnection = nil
-local savedTools = {}
+local syncConnection = nil
+local charAddedConn = nil
+local isToggling = false -- ANTI LOOP FLAG
 
 --// GUI
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "VD_InvisV3_Fixed"
+screenGui.Name = "VD_InvisV4_Fixed"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = localPlayer:WaitForChild("PlayerGui")
 
@@ -36,10 +37,10 @@ Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 10)
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 32)
 title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-title.Text = "👻 VD Invis V3 (Fixed)"
+title.Text = "👻 VD Invis V4 (Fixed)"
 title.TextColor3 = Color3.fromRGB(255, 80, 80)
 title.Font = Enum.Font.GothamBold
-title.TextSize = 15
+textSize = 15
 title.Parent = mainFrame
 
 Instance.new("UICorner", title).CornerRadius = UDim.new(0, 8)
@@ -51,14 +52,14 @@ statusLabel.BackgroundTransparency = 1
 statusLabel.Text = "Status: VISIBLE"
 statusLabel.TextColor3 = Color3.fromRGB(0, 255, 80)
 statusLabel.Font = Enum.Font.GothamBold
-statusSize = 16
+statusLabel.TextSize = 16
 statusLabel.Parent = mainFrame
 
 local infoLabel = Instance.new("TextLabel")
 infoLabel.Size = UDim2.new(0.9, 0, 0, 18)
 infoLabel.Position = UDim2.new(0.05, 0, 0.40, 0)
 infoLabel.BackgroundTransparency = 1
-infoLabel.Text = "Bisa gerak & nembak!"
+infoLabel.Text = "Anti-Loop + Anti-Void + Full Control"
 infoLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
 infoLabel.Font = Enum.Font.Gotham
 infoLabel.TextSize = 11
@@ -80,7 +81,7 @@ local warnLabel = Instance.new("TextLabel")
 warnLabel.Size = UDim2.new(0.9, 0, 0, 35)
 warnLabel.Position = UDim2.new(0.05, 0, 0.76, 0)
 warnLabel.BackgroundTransparency = 1
-warnLabel.Text = "⚠️ JANGAN LARI KENCANG!\n⚠️ Fake = Kontrol | Real = Hitbox (bawah)"
+warnLabel.Text = "⚠️ JANGAN LARI KENCANG!\n⚠️ Kalau mati, matiin dulu sebelum respawn"
 warnLabel.TextColor3 = Color3.fromRGB(255, 180, 0)
 warnLabel.Font = Enum.Font.Gotham
 warnLabel.TextSize = 10
@@ -88,22 +89,17 @@ warnLabel.TextWrapped = true
 warnLabel.Parent = mainFrame
 
 --// ============================================
---//  HELPER FUNCTIONS
+--//  HELPER: HIDE / SHOW CHARACTER
 --// ============================================
 
 local function hideCharacter(char)
     for _, v in pairs(char:GetDescendants()) do
         if v:IsA("BasePart") or v:IsA("Decal") or v:IsA("Texture") then
             v.Transparency = 1
-            if v:IsA("BasePart") then
-                v.CastShadow = false
-            end
+            if v:IsA("BasePart") then v.CastShadow = false end
         elseif v:IsA("Accessory") then
             local h = v:FindFirstChild("Handle")
-            if h then 
-                h.Transparency = 1
-                h.CastShadow = false
-            end
+            if h then h.Transparency = 1; h.CastShadow = false end
         elseif v:IsA("BillboardGui") or v:IsA("SurfaceGui") then
             v.Enabled = false
         elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
@@ -129,10 +125,7 @@ local function showCharacter(char)
             v.Transparency = 0
         elseif v:IsA("Accessory") then
             local h = v:FindFirstChild("Handle")
-            if h then 
-                h.Transparency = 0
-                h.CastShadow = true
-            end
+            if h then h.Transparency = 0; h.CastShadow = true end
         elseif v:IsA("BillboardGui") or v:IsA("SurfaceGui") then
             v.Enabled = true
         elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
@@ -148,39 +141,51 @@ end
 --// ============================================
 
 local function enableInvisibility()
+    if isToggling then return false end
+    isToggling = true
+    
     realCharacter = localPlayer.Character
-    if not realCharacter then return false end
+    if not realCharacter then isToggling = false return false end
     
     local humanoid = realCharacter:FindFirstChildOfClass("Humanoid")
     local rootPart = realCharacter:FindFirstChild("HumanoidRootPart")
-    if not humanoid or not rootPart then return false end
+    if not humanoid or not rootPart then isToggling = false return false end
     
     local savedCFrame = rootPart.CFrame
     
     --// 1. CLONE KARAKTER
     realCharacter.Archivable = true
     fakeCharacter = realCharacter:Clone()
-    fakeCharacter.Name = "FakeCharacter_VD"
+    fakeCharacter.Name = "Fake_VD"
     fakeCharacter.Parent = Workspace
     
-    --// 2. MATIKAN LOCAL SCRIPT DI REAL (biar nggak konflik)
-    for _, v in pairs(realCharacter:GetDescendants()) do
-        if v:IsA("LocalScript") then
-            pcall(function() v.Disabled = true end)
+    --// 2. SETUP FAKE CHARACTER (ini yang bakal dikontrol)
+    local fakeRoot = fakeCharacter:WaitForChild("HumanoidRootPart", 3)
+    local fakeHum = fakeCharacter:FindFirstChildOfClass("Humanoid")
+    if not fakeRoot or not fakeHum then
+        fakeCharacter:Destroy()
+        isToggling = false
+        return false
+    end
+    
+    fakeRoot.CFrame = savedCFrame
+    fakeRoot.Velocity = Vector3.new(0, 0, 0)
+    
+    -- Fake: transparan 0.3 (kamu masih lihat diri sendiri sedikit)
+    -- Kalau mau FULL invisible diri sendiri juga, ganti jadi 1
+    for _, v in pairs(fakeCharacter:GetDescendants()) do
+        if v:IsA("BasePart") or v:IsA("Decal") then
+            v.Transparency = 0.3 -- Kamu lihat diri sendiri transparan
         end
     end
     
-    --// 3. JANGAN DISABLE LOCAL SCRIPT DI FAKE! 
-    -- Biar script game VD (nembak, animasi, dll) tetep jalan di fake!
-    
-    --// 4. PINDAHIN TOOLS KE FAKE CHARACTER
-    local backpack = localPlayer:FindFirstChild("Backpack")
+    --// 3. PINDAHIN TOOLS KE FAKE (biar bisa nembak!)
     for _, tool in pairs(realCharacter:GetChildren()) do
         if tool:IsA("Tool") then
             tool.Parent = fakeCharacter
         end
     end
-    -- Pindahin juga dari backpack ke fake (kalau ada)
+    local backpack = localPlayer:FindFirstChild("Backpack")
     if backpack then
         for _, tool in pairs(backpack:GetChildren()) do
             if tool:IsA("Tool") then
@@ -189,31 +194,23 @@ local function enableInvisibility()
         end
     end
     
-    --// 5. HIDE REAL CHARACTER & PINDAH KE BAWAH
+    --// 4. HIDE REAL CHARACTER
     hideCharacter(realCharacter)
-    rootPart.CFrame = CFrame.new(savedCFrame.Position - Vector3.new(0, 500, 0))
+    
+    --// 5. PINDAHIN REAL KE POSISI AMAN (bukan void!)
+    -- Pindah ke bawah tapi MASIH DI DALAM MAP (Y-20)
+    -- Jangan ke Y-500 karena bakal jatuh mati!
+    local safePos = savedCFrame.Position - Vector3.new(0, 20, 0)
+    rootPart.CFrame = CFrame.new(safePos)
     rootPart.Velocity = Vector3.new(0, 0, 0)
+    rootPart.Anchored = true -- ANCHOR biar nggak jatuh!
     
-    --// 6. SETUP FAKE CHARACTER
-    local fakeRoot = fakeCharacter:WaitForChild("HumanoidRootPart", 2)
-    local fakeHum = fakeCharacter:FindFirstChildOfClass("Humanoid")
-    if not fakeRoot or not fakeHum then
-        fakeCharacter:Destroy()
-        return false
-    end
-    
-    fakeRoot.CFrame = savedCFrame
-    fakeRoot.Velocity = Vector3.new(0, 0, 0)
-    
-    -- Fake character tetap visible (kamu lihat diri sendiri normal)
-    -- Kalau mau diri sendiri juga invisible, ganti jadi hideCharacter(fakeCharacter)
-    
-    --// 7. SWAP CHARACTER KE FAKE! (INI KUNCI BISA GERAK & NEMBAK)
+    --// 6. SWAP CHARACTER KE FAKE! (KUNCI BISA GERAK)
     localPlayer.Character = fakeCharacter
     Workspace.CurrentCamera.CameraSubject = fakeHum
     
-    --// 8. SYNC LOOP: Real ngikutin Fake
-    renderConnection = RunService.Heartbeat:Connect(function()
+    --// 7. SYNC LOOP: Real ngikutin Fake
+    syncConnection = RunService.Heartbeat:Connect(function()
         if not isInvisible then return end
         if not fakeCharacter or not fakeCharacter.Parent then return end
         if not realCharacter or not realCharacter.Parent then return end
@@ -224,36 +221,29 @@ local function enableInvisibility()
         local rHum = realCharacter:FindFirstChildOfClass("Humanoid")
         
         if fRoot and rRoot then
-            -- Real character ngikutin fake tapi di bawah
-            rRoot.CFrame = fRoot.CFrame + Vector3.new(0, -500, 0)
-            rRoot.Velocity = fRoot.Velocity
-            rRoot.RotVelocity = fRoot.RotVelocity
+            -- Real tetap di bawah fake, tapi anchored biar nggak jatuh
+            rRoot.Anchored = true
+            rRoot.CFrame = fRoot.CFrame - Vector3.new(0, 20, 0)
+            rRoot.Velocity = Vector3.new(0, 0, 0)
         end
         
-        -- Sync health (kalau fake kena damage, real juga)
+        -- Sync health & states
         if fHum and rHum then
             rHum.Health = fHum.Health
             rHum.MaxHealth = fHum.MaxHealth
+            rHum.WalkSpeed = fHum.WalkSpeed
+            rHum.JumpPower = fHum.JumpPower
         end
         
-        -- Pastikan real tetap hidden
+        -- Maintain hide
         for _, v in pairs(realCharacter:GetDescendants()) do
             if v:IsA("BasePart") and v.Transparency ~= 1 then
                 v.Transparency = 1
             end
         end
-        
-        -- Pastikan fake tetap visible (kalau mau lihat diri sendiri)
-        -- Kalau mau diri sendiri juga invisible, comment bagian ini:
-        --[[
-        for _, v in pairs(fakeCharacter:GetDescendants()) do
-            if v:IsA("BasePart") and v.Transparency ~= 0 then
-                v.Transparency = 0
-            end
-        end
-        --]]
     end)
     
+    isToggling = false
     return true
 end
 
@@ -262,16 +252,24 @@ end
 --// ============================================
 
 local function disableInvisibility()
-    if renderConnection then
-        renderConnection:Disconnect()
-        renderConnection = nil
+    if isToggling then return end
+    isToggling = true
+    
+    if syncConnection then
+        syncConnection:Disconnect()
+        syncConnection = nil
     end
     
     if fakeCharacter and realCharacter then
         local fakeRoot = fakeCharacter:FindFirstChild("HumanoidRootPart")
         local realRoot = realCharacter:FindFirstChild("HumanoidRootPart")
         
-        -- Pindahin tools balik ke real
+        -- Unanchor real dulu
+        if realRoot then
+            realRoot.Anchored = false
+        end
+        
+        -- Pindahin tools balik
         for _, tool in pairs(fakeCharacter:GetChildren()) do
             if tool:IsA("Tool") then
                 tool.Parent = realCharacter
@@ -289,15 +287,8 @@ local function disableInvisibility()
             Workspace.CurrentCamera.CameraSubject = realCharacter:FindFirstChildOfClass("Humanoid")
         end)
         
-        -- Restore visual real
+        -- Restore visual
         showCharacter(realCharacter)
-        
-        -- Enable LocalScript di real
-        for _, v in pairs(realCharacter:GetDescendants()) do
-            if v:IsA("LocalScript") then
-                pcall(function() v.Disabled = false end)
-            end
-        end
     end
     
     if fakeCharacter then
@@ -306,6 +297,8 @@ local function disableInvisibility()
     end
     
     isInvisible = false
+    isToggling = false
+    
     statusLabel.Text = "Status: VISIBLE"
     statusLabel.TextColor3 = Color3.fromRGB(0, 255, 80)
     toggleBtn.Text = "Toggle Invisible [INSERT]"
@@ -313,31 +306,32 @@ local function disableInvisibility()
 end
 
 --// ============================================
---//  TOGGLE
+--//  TOGGLE (dengan ANTI-LOOP)
 --// ============================================
 
 local function toggleInvisibility()
+    if isToggling then return end -- ANTI LOOP!
+    
     if isInvisible then
         disableInvisibility()
-        return
-    end
-    
-    local success = enableInvisibility()
-    if success then
-        isInvisible = true
-        statusLabel.Text = "Status: INVISIBLE 👻"
-        statusLabel.TextColor3 = Color3.fromRGB(255, 60, 60)
-        toggleBtn.Text = "MATIKAN INVISIBLE"
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
-        print("✅ VD Invis V3: AKTIF — Bisa gerak & nembak!")
     else
-        statusLabel.Text = "Status: GAGAL"
-        statusLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+        local success = enableInvisibility()
+        if success then
+            isInvisible = true
+            statusLabel.Text = "Status: INVISIBLE 👻"
+            statusLabel.TextColor3 = Color3.fromRGB(255, 60, 60)
+            toggleBtn.Text = "MATIKAN INVISIBLE"
+            toggleBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+            print("✅ VD Invis V4: AKTIF — Bisa gerak & nembak!")
+        else
+            statusLabel.Text = "Status: GAGAL"
+            statusLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+        end
     end
 end
 
 --// ============================================
---//  EVENTS
+--//  EVENTS (dengan ANTI-LOOP)
 --// ============================================
 
 toggleBtn.MouseButton1Click:Connect(toggleInvisibility)
@@ -348,13 +342,26 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
---// Handle respawn
-charAddedConnection = localPlayer.CharacterAdded:Connect(function(newChar)
-    if isInvisible then
-        -- Matiin dulu, tunggu load, aktifkan ulang
-        disableInvisibility()
+--// RESPawn handler — MATIIN DULU sebelum respawn!
+charAddedConn = localPlayer.CharacterAdded:Connect(function(newChar)
+    -- Kalau lagi invisible dan character baru spawn = matiin dulu
+    if isInvisible and not isToggling then
+        isInvisible = false -- Force mati
+        if syncConnection then
+            syncConnection:Disconnect()
+            syncConnection = nil
+        end
+        if fakeCharacter then
+            pcall(function() fakeCharacter:Destroy() end)
+            fakeCharacter = nil
+        end
+        -- Tunggu load, terus aktifkan ulang kalau mau
         task.wait(1.5)
-        toggleInvisibility()
+        -- JANGAN auto-toggle lagi! Biar user manual toggle
+        statusLabel.Text = "Status: VISIBLE (Respawned)"
+        statusLabel.TextColor3 = Color3.fromRGB(0, 255, 80)
+        toggleBtn.Text = "Toggle Invisible [INSERT]"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
     end
 end)
 
@@ -382,6 +389,6 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
-print("👻 VD Invisible V3 (Fixed) loaded!")
+print("👻 VD Invisible V4 (Fixed) loaded!")
 print("Tekan INSERT untuk toggle")
-print("✅ Sekarang BISA GERAK & NEMBAK!")
+print("✅ Fix: Anti-Loop + Anti-Void + Bisa Gerak & Nembak!")
