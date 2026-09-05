@@ -1,439 +1,387 @@
+--// ============================================
+--//  VD INVISIBLE V3 — FIXED GERAK & NEMBAK
+//   Metode: Underground Clone + Character Swap
+//   Real = di bawah (invisible) | Fake = dikontrol
+//   Toggle: INSERT
+// ============================================
 
---!strict
-
--- Configuration
-local CONFIG = {
-	TOGGLE_KEY = Enum.KeyCode.X,
-	DEFAULT_SPEED = 16,
-	BOOSTED_SPEED = 48,
-	SOUND_ID = "rbxassetid://942127495",
-	INVISIBILITY_POSITION = Vector3.new(-25.95, 84, 3537.55),
-	NOTIFICATION_DURATION = 3,
-	-- UI Colors
-	BACKGROUND_COLOR = Color3.fromRGB(25, 25, 25),
-	ACCENT_COLOR = Color3.fromRGB(45, 45, 45),
-	PRIMARY_COLOR = Color3.fromRGB(0, 170, 255),
-	SUCCESS_COLOR = Color3.fromRGB(46, 204, 113),
-	DANGER_COLOR = Color3.fromRGB(231, 76, 60),
-	WARNING_COLOR = Color3.fromRGB(241, 196, 15),
-	TEXT_COLOR = Color3.fromRGB(255, 255, 255),
-	SECONDARY_TEXT_COLOR = Color3.fromRGB(189, 195, 199),
-}
-
--- Types
-type PlayerState = {
-	isInvisible: boolean,
-	isSpeedBoosted: boolean,
-	originalSpeed: number,
-}
-
--- Services
 local Players = game:GetService("Players")
-local StarterGui = game:GetService("StarterGui")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local localPlayer = Players.LocalPlayer
 
--- Variables
-local player = Players.LocalPlayer
-local playerState: PlayerState = {
-	isInvisible = false,
-	isSpeedBoosted = false,
-	originalSpeed = CONFIG.DEFAULT_SPEED,
-}
+local isInvisible = false
+local fakeCharacter = nil
+local realCharacter = nil
+local renderConnection = nil
+local charAddedConnection = nil
+local savedTools = {}
 
--- GUI Elements
-local screenGui: ScreenGui
-local mainFrame: Frame
-local toggleButton: TextButton
-local speedButton: TextButton
-local closeButton: TextButton
-local signatureLabel: TextLabel
-local sound: Sound
+--// GUI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "VD_InvisV3_Fixed"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = localPlayer:WaitForChild("PlayerGui")
 
--- Utility Functions
-local function createNotification(title: string, text: string): ()
-	StarterGui:SetCore("SendNotification", {
-		Title = title,
-		Text = text,
-		Duration = CONFIG.NOTIFICATION_DURATION,
-	})
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 300, 0, 160)
+mainFrame.Position = UDim2.new(0, 15, 0.5, -80)
+mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 10)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 32)
+title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+title.Text = "👻 VD Invis V3 (Fixed)"
+title.TextColor3 = Color3.fromRGB(255, 80, 80)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 15
+title.Parent = mainFrame
+
+Instance.new("UICorner", title).CornerRadius = UDim.new(0, 8)
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(0.9, 0, 0, 22)
+statusLabel.Position = UDim2.new(0.05, 0, 0.24, 0)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "Status: VISIBLE"
+statusLabel.TextColor3 = Color3.fromRGB(0, 255, 80)
+statusLabel.Font = Enum.Font.GothamBold
+statusSize = 16
+statusLabel.Parent = mainFrame
+
+local infoLabel = Instance.new("TextLabel")
+infoLabel.Size = UDim2.new(0.9, 0, 0, 18)
+infoLabel.Position = UDim2.new(0.05, 0, 0.40, 0)
+infoLabel.BackgroundTransparency = 1
+infoLabel.Text = "Bisa gerak & nembak!"
+infoLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+infoLabel.Font = Enum.Font.Gotham
+infoLabel.TextSize = 11
+infoLabel.Parent = mainFrame
+
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(0.9, 0, 0, 35)
+toggleBtn.Position = UDim2.new(0.05, 0, 0.56, 0)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+toggleBtn.Text = "Toggle Invisible [INSERT]"
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 13
+toggleBtn.Parent = mainFrame
+
+Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 6)
+
+local warnLabel = Instance.new("TextLabel")
+warnLabel.Size = UDim2.new(0.9, 0, 0, 35)
+warnLabel.Position = UDim2.new(0.05, 0, 0.76, 0)
+warnLabel.BackgroundTransparency = 1
+warnLabel.Text = "⚠️ JANGAN LARI KENCANG!\n⚠️ Fake = Kontrol | Real = Hitbox (bawah)"
+warnLabel.TextColor3 = Color3.fromRGB(255, 180, 0)
+warnLabel.Font = Enum.Font.Gotham
+warnLabel.TextSize = 10
+warnLabel.TextWrapped = true
+warnLabel.Parent = mainFrame
+
+--// ============================================
+--//  HELPER FUNCTIONS
+--// ============================================
+
+local function hideCharacter(char)
+    for _, v in pairs(char:GetDescendants()) do
+        if v:IsA("BasePart") or v:IsA("Decal") or v:IsA("Texture") then
+            v.Transparency = 1
+            if v:IsA("BasePart") then
+                v.CastShadow = false
+            end
+        elseif v:IsA("Accessory") then
+            local h = v:FindFirstChild("Handle")
+            if h then 
+                h.Transparency = 1
+                h.CastShadow = false
+            end
+        elseif v:IsA("BillboardGui") or v:IsA("SurfaceGui") then
+            v.Enabled = false
+        elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+            v.Enabled = false
+        elseif v:IsA("Sound") then
+            v.Volume = 0
+        end
+    end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+        hum.NameDisplayDistance = 0
+        hum.HealthDisplayDistance = 0
+    end
 end
 
-local function setCharacterTransparency(character: Model, transparency: number): ()
-	for _, descendant in character:GetDescendants() do
-		if descendant:IsA("BasePart") or descendant:IsA("Decal") then
-			descendant.Transparency = transparency
-		end
-	end
+local function showCharacter(char)
+    for _, v in pairs(char:GetDescendants()) do
+        if v:IsA("BasePart") then
+            v.Transparency = 0
+            v.CastShadow = true
+        elseif v:IsA("Decal") or v:IsA("Texture") then
+            v.Transparency = 0
+        elseif v:IsA("Accessory") then
+            local h = v:FindFirstChild("Handle")
+            if h then 
+                h.Transparency = 0
+                h.CastShadow = true
+            end
+        elseif v:IsA("BillboardGui") or v:IsA("SurfaceGui") then
+            v.Enabled = true
+        elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+            v.Enabled = true
+        elseif v:IsA("Sound") then
+            v.Volume = 0.5
+        end
+    end
 end
 
-local function getHumanoid(): Humanoid?
-	local character = player.Character
-	if not character then
-		return nil
-	end
-	return character:FindFirstChild("Humanoid") :: Humanoid?
+--// ============================================
+--//  CORE: ENABLE INVISIBILITY
+--// ============================================
+
+local function enableInvisibility()
+    realCharacter = localPlayer.Character
+    if not realCharacter then return false end
+    
+    local humanoid = realCharacter:FindFirstChildOfClass("Humanoid")
+    local rootPart = realCharacter:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not rootPart then return false end
+    
+    local savedCFrame = rootPart.CFrame
+    
+    --// 1. CLONE KARAKTER
+    realCharacter.Archivable = true
+    fakeCharacter = realCharacter:Clone()
+    fakeCharacter.Name = "FakeCharacter_VD"
+    fakeCharacter.Parent = Workspace
+    
+    --// 2. MATIKAN LOCAL SCRIPT DI REAL (biar nggak konflik)
+    for _, v in pairs(realCharacter:GetDescendants()) do
+        if v:IsA("LocalScript") then
+            pcall(function() v.Disabled = true end)
+        end
+    end
+    
+    --// 3. JANGAN DISABLE LOCAL SCRIPT DI FAKE! 
+    -- Biar script game VD (nembak, animasi, dll) tetep jalan di fake!
+    
+    --// 4. PINDAHIN TOOLS KE FAKE CHARACTER
+    local backpack = localPlayer:FindFirstChild("Backpack")
+    for _, tool in pairs(realCharacter:GetChildren()) do
+        if tool:IsA("Tool") then
+            tool.Parent = fakeCharacter
+        end
+    end
+    -- Pindahin juga dari backpack ke fake (kalau ada)
+    if backpack then
+        for _, tool in pairs(backpack:GetChildren()) do
+            if tool:IsA("Tool") then
+                tool.Parent = fakeCharacter
+            end
+        end
+    end
+    
+    --// 5. HIDE REAL CHARACTER & PINDAH KE BAWAH
+    hideCharacter(realCharacter)
+    rootPart.CFrame = CFrame.new(savedCFrame.Position - Vector3.new(0, 500, 0))
+    rootPart.Velocity = Vector3.new(0, 0, 0)
+    
+    --// 6. SETUP FAKE CHARACTER
+    local fakeRoot = fakeCharacter:WaitForChild("HumanoidRootPart", 2)
+    local fakeHum = fakeCharacter:FindFirstChildOfClass("Humanoid")
+    if not fakeRoot or not fakeHum then
+        fakeCharacter:Destroy()
+        return false
+    end
+    
+    fakeRoot.CFrame = savedCFrame
+    fakeRoot.Velocity = Vector3.new(0, 0, 0)
+    
+    -- Fake character tetap visible (kamu lihat diri sendiri normal)
+    -- Kalau mau diri sendiri juga invisible, ganti jadi hideCharacter(fakeCharacter)
+    
+    --// 7. SWAP CHARACTER KE FAKE! (INI KUNCI BISA GERAK & NEMBAK)
+    localPlayer.Character = fakeCharacter
+    Workspace.CurrentCamera.CameraSubject = fakeHum
+    
+    --// 8. SYNC LOOP: Real ngikutin Fake
+    renderConnection = RunService.Heartbeat:Connect(function()
+        if not isInvisible then return end
+        if not fakeCharacter or not fakeCharacter.Parent then return end
+        if not realCharacter or not realCharacter.Parent then return end
+        
+        local fRoot = fakeCharacter:FindFirstChild("HumanoidRootPart")
+        local rRoot = realCharacter:FindFirstChild("HumanoidRootPart")
+        local fHum = fakeCharacter:FindFirstChildOfClass("Humanoid")
+        local rHum = realCharacter:FindFirstChildOfClass("Humanoid")
+        
+        if fRoot and rRoot then
+            -- Real character ngikutin fake tapi di bawah
+            rRoot.CFrame = fRoot.CFrame + Vector3.new(0, -500, 0)
+            rRoot.Velocity = fRoot.Velocity
+            rRoot.RotVelocity = fRoot.RotVelocity
+        end
+        
+        -- Sync health (kalau fake kena damage, real juga)
+        if fHum and rHum then
+            rHum.Health = fHum.Health
+            rHum.MaxHealth = fHum.MaxHealth
+        end
+        
+        -- Pastikan real tetap hidden
+        for _, v in pairs(realCharacter:GetDescendants()) do
+            if v:IsA("BasePart") and v.Transparency ~= 1 then
+                v.Transparency = 1
+            end
+        end
+        
+        -- Pastikan fake tetap visible (kalau mau lihat diri sendiri)
+        -- Kalau mau diri sendiri juga invisible, comment bagian ini:
+        --[[
+        for _, v in pairs(fakeCharacter:GetDescendants()) do
+            if v:IsA("BasePart") and v.Transparency ~= 0 then
+                v.Transparency = 0
+            end
+        end
+        --]]
+    end)
+    
+    return true
 end
 
-local function getHumanoidRootPart(): BasePart?
-	local character = player.Character
-	if not character then
-		return nil
-	end
-	return character:FindFirstChild("HumanoidRootPart") :: BasePart?
+--// ============================================
+--//  CORE: DISABLE INVISIBILITY
+--// ============================================
+
+local function disableInvisibility()
+    if renderConnection then
+        renderConnection:Disconnect()
+        renderConnection = nil
+    end
+    
+    if fakeCharacter and realCharacter then
+        local fakeRoot = fakeCharacter:FindFirstChild("HumanoidRootPart")
+        local realRoot = realCharacter:FindFirstChild("HumanoidRootPart")
+        
+        -- Pindahin tools balik ke real
+        for _, tool in pairs(fakeCharacter:GetChildren()) do
+            if tool:IsA("Tool") then
+                tool.Parent = realCharacter
+            end
+        end
+        
+        -- Teleport real ke posisi fake
+        if realRoot and fakeRoot then
+            realRoot.CFrame = fakeRoot.CFrame
+        end
+        
+        -- Swap balik ke real
+        pcall(function()
+            localPlayer.Character = realCharacter
+            Workspace.CurrentCamera.CameraSubject = realCharacter:FindFirstChildOfClass("Humanoid")
+        end)
+        
+        -- Restore visual real
+        showCharacter(realCharacter)
+        
+        -- Enable LocalScript di real
+        for _, v in pairs(realCharacter:GetDescendants()) do
+            if v:IsA("LocalScript") then
+                pcall(function() v.Disabled = false end)
+            end
+        end
+    end
+    
+    if fakeCharacter then
+        pcall(function() fakeCharacter:Destroy() end)
+        fakeCharacter = nil
+    end
+    
+    isInvisible = false
+    statusLabel.Text = "Status: VISIBLE"
+    statusLabel.TextColor3 = Color3.fromRGB(0, 255, 80)
+    toggleBtn.Text = "Toggle Invisible [INSERT]"
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 end
 
-local function playSound(): ()
-	if sound then
-		sound:Play()
-	end
+--// ============================================
+--//  TOGGLE
+--// ============================================
+
+local function toggleInvisibility()
+    if isInvisible then
+        disableInvisibility()
+        return
+    end
+    
+    local success = enableInvisibility()
+    if success then
+        isInvisible = true
+        statusLabel.Text = "Status: INVISIBLE 👻"
+        statusLabel.TextColor3 = Color3.fromRGB(255, 60, 60)
+        toggleBtn.Text = "MATIKAN INVISIBLE"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+        print("✅ VD Invis V3: AKTIF — Bisa gerak & nembak!")
+    else
+        statusLabel.Text = "Status: GAGAL"
+        statusLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+    end
 end
 
--- Core Functions
-local function toggleInvisibility(): ()
-	if not player.Character then
-		warn("Character not found")
-		return
-	end
+--// ============================================
+--//  EVENTS
+--// ============================================
 
-	playerState.isInvisible = not playerState.isInvisible
-	playSound()
+toggleBtn.MouseButton1Click:Connect(toggleInvisibility)
 
-	if playerState.isInvisible then
-		local humanoidRootPart = getHumanoidRootPart()
-		if not humanoidRootPart then
-			warn("HumanoidRootPart not found")
-			return
-		end
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.Insert and not gameProcessed then
+        toggleInvisibility()
+    end
+end)
 
-		local savedPosition = humanoidRootPart.CFrame
+--// Handle respawn
+charAddedConnection = localPlayer.CharacterAdded:Connect(function(newChar)
+    if isInvisible then
+        -- Matiin dulu, tunggu load, aktifkan ulang
+        disableInvisibility()
+        task.wait(1.5)
+        toggleInvisibility()
+    end
+end)
 
-		-- Move to invisibility position
-		player.Character:MoveTo(CONFIG.INVISIBILITY_POSITION)
-		task.wait(0.15)
+--// Drag GUI
+local dragging, dragStart, startPos = false, nil, nil
 
-		-- Create invisible seat
-		local seat = Instance.new("Seat")
-		seat.Name = "invischair"
-		seat.Anchored = false
-		seat.CanCollide = false
-		seat.Transparency = 1
-		seat.Position = CONFIG.INVISIBILITY_POSITION
-		seat.Parent = workspace
+mainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+    end
+end)
 
-		-- Weld seat to character
-		local weld = Instance.new("Weld")
-		weld.Part0 = seat
-		weld.Part1 = player.Character:FindFirstChild("Torso") or player.Character:FindFirstChild("UpperTorso")
-		weld.Parent = seat
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
 
-		task.wait()
-		seat.CFrame = savedPosition
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
 
-		-- Set character transparency
-		setCharacterTransparency(player.Character, 0.5)
-
-		-- Update button appearance
-		toggleButton.BackgroundColor3 = CONFIG.SUCCESS_COLOR
-		toggleButton.Text = "VISIBLE"
-		if _G.statusLabel then
-			_G.statusLabel.Text = "Invisible Mode Active"
-			_G.statusLabel.TextColor3 = CONFIG.SUCCESS_COLOR
-		end
-
-		createNotification("Invisibility ON", "You are now invisible")
-	else
-		-- Remove invisible chair
-		local invisChair = workspace:FindFirstChild("invischair")
-		if invisChair then
-			invisChair:Destroy()
-		end
-
-		-- Restore character visibility
-		if player.Character then
-			setCharacterTransparency(player.Character, 0)
-		end
-
-		-- Update button appearance
-		toggleButton.BackgroundColor3 = CONFIG.PRIMARY_COLOR
-		toggleButton.Text = "INVISIBLE"
-		if _G.statusLabel then
-			_G.statusLabel.Text = "Visible Mode Active"
-			_G.statusLabel.TextColor3 = CONFIG.SECONDARY_TEXT_COLOR
-		end
-
-		createNotification("Invisibility OFF", "You are now visible")
-	end
-end
-
-local function toggleSpeedBoost(): ()
-	local humanoid = getHumanoid()
-	if not humanoid then
-		warn("Humanoid not found")
-		return
-	end
-
-	playerState.isSpeedBoosted = not playerState.isSpeedBoosted
-	playSound()
-
-	if playerState.isSpeedBoosted then
-		humanoid.WalkSpeed = CONFIG.BOOSTED_SPEED
-		speedButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
-		speedButton.Text = "SPEED ON"
-		createNotification("Speed Boost ON", `Speed: {CONFIG.BOOSTED_SPEED}`)
-	else
-		humanoid.WalkSpeed = playerState.originalSpeed
-		speedButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-		speedButton.Text = "SPEED BOOST"
-		createNotification("Speed Boost OFF", `Speed: {playerState.originalSpeed}`)
-	end
-end
-
-local function resetPlayerState(): ()
-	playerState.isInvisible = false
-	playerState.isSpeedBoosted = false
-
-	-- Reset button appearances
-	if toggleButton then
-		toggleButton.BackgroundColor3 = CONFIG.PRIMARY_COLOR
-		toggleButton.Text = "INVISIBLE"
-	end
-
-	if speedButton then
-		speedButton.BackgroundColor3 = CONFIG.DANGER_COLOR
-		speedButton.Text = "SPEED BOOST"
-	end
-
-	-- Reset status
-	if _G.statusLabel then
-		_G.statusLabel.Text = "Ready"
-		_G.statusLabel.TextColor3 = CONFIG.SECONDARY_TEXT_COLOR
-	end
-end
-
--- GUI Creation
-local function createGUI(): ()
-	-- Main ScreenGui
-	screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "InvisibilityGUI"
-	screenGui.ResetOnSpawn = false
-	screenGui.Parent = player:WaitForChild("PlayerGui")
-
-	-- Main Frame
-	mainFrame = Instance.new("Frame")
-	mainFrame.Name = "MainFrame"
-	mainFrame.Size = UDim2.new(0, 160, 0, 180)
-	mainFrame.Position = UDim2.new(0.5, -80, 0.5, -90)
-	mainFrame.BackgroundColor3 = CONFIG.BACKGROUND_COLOR
-	mainFrame.BorderSizePixel = 0
-	mainFrame.Active = true
-	mainFrame.Draggable = true
-	mainFrame.Parent = screenGui
-
-	-- Add corner rounding and shadow effect
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 12)
-	corner.Parent = mainFrame
-
-	-- Add stroke for better definition
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = CONFIG.ACCENT_COLOR
-	stroke.Thickness = 2
-	stroke.Parent = mainFrame
-
-	-- Title Label
-	local titleLabel = Instance.new("TextLabel")
-	titleLabel.Name = "TitleLabel"
-	titleLabel.Size = UDim2.new(1, -20, 0, 25)
-	titleLabel.Position = UDim2.new(0, 10, 0, 10)
-	titleLabel.Text = "INVISIBILITY TOOL"
-	titleLabel.BackgroundTransparency = 1
-	titleLabel.TextColor3 = CONFIG.TEXT_COLOR
-	titleLabel.Font = Enum.Font.GothamBold
-	titleLabel.TextSize = 12
-	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-	titleLabel.Parent = mainFrame
-
-	-- Toggle Button
-	toggleButton = Instance.new("TextButton")
-	toggleButton.Name = "ToggleButton"
-	toggleButton.Size = UDim2.new(1, -20, 0, 35)
-	toggleButton.Position = UDim2.new(0, 10, 0, 45)
-	toggleButton.Text = "INVISIBLE"
-	toggleButton.BackgroundColor3 = CONFIG.PRIMARY_COLOR
-	toggleButton.TextColor3 = CONFIG.TEXT_COLOR
-	toggleButton.Font = Enum.Font.GothamBold
-	toggleButton.TextScaled = true
-	toggleButton.BorderSizePixel = 0
-	toggleButton.Parent = mainFrame
-
-	local toggleCorner = Instance.new("UICorner")
-	toggleCorner.CornerRadius = UDim.new(0, 8)
-	toggleCorner.Parent = toggleButton
-
-	-- Add hover effect for toggle button
-	local toggleStroke = Instance.new("UIStroke")
-	toggleStroke.Color = Color3.fromRGB(255, 255, 255)
-	toggleStroke.Thickness = 0
-	toggleStroke.Transparency = 0.8
-	toggleStroke.Parent = toggleButton
-
-	-- Speed Button
-	speedButton = Instance.new("TextButton")
-	speedButton.Name = "SpeedButton"
-	speedButton.Size = UDim2.new(1, -20, 0, 35)
-	speedButton.Position = UDim2.new(0, 10, 0, 90)
-	speedButton.Text = "SPEED BOOST"
-	speedButton.BackgroundColor3 = CONFIG.DANGER_COLOR
-	speedButton.TextColor3 = CONFIG.TEXT_COLOR
-	speedButton.Font = Enum.Font.GothamBold
-	speedButton.TextScaled = true
-	speedButton.BorderSizePixel = 0
-	speedButton.Parent = mainFrame
-
-	local speedCorner = Instance.new("UICorner")
-	speedCorner.CornerRadius = UDim.new(0, 8)
-	speedCorner.Parent = speedButton
-
-	-- Add hover effect for speed button
-	local speedStroke = Instance.new("UIStroke")
-	speedStroke.Color = Color3.fromRGB(255, 255, 255)
-	speedStroke.Thickness = 0
-	speedStroke.Transparency = 0.8
-	speedStroke.Parent = speedButton
-
-	-- Close Button
-	closeButton = Instance.new("TextButton")
-	closeButton.Name = "CloseButton"
-	closeButton.Size = UDim2.new(0, 25, 0, 25)
-	closeButton.Position = UDim2.new(1, -30, 0, 5)
-	closeButton.Text = "×"
-	closeButton.BackgroundColor3 = CONFIG.DANGER_COLOR
-	closeButton.TextColor3 = CONFIG.TEXT_COLOR
-	closeButton.Font = Enum.Font.GothamBold
-	closeButton.TextSize = 16
-	closeButton.BorderSizePixel = 0
-	closeButton.Parent = mainFrame
-
-	local closeCorner = Instance.new("UICorner")
-	closeCorner.CornerRadius = UDim.new(0, 6)
-	closeCorner.Parent = closeButton
-
-	-- Status Indicator
-	local statusFrame = Instance.new("Frame")
-	statusFrame.Name = "StatusFrame"
-	statusFrame.Size = UDim2.new(1, -20, 0, 20)
-	statusFrame.Position = UDim2.new(0, 10, 0, 135)
-	statusFrame.BackgroundColor3 = CONFIG.ACCENT_COLOR
-	statusFrame.BorderSizePixel = 0
-	statusFrame.Parent = mainFrame
-
-	local statusCorner = Instance.new("UICorner")
-	statusCorner.CornerRadius = UDim.new(0, 6)
-	statusCorner.Parent = statusFrame
-
-	local statusLabel = Instance.new("TextLabel")
-	statusLabel.Name = "StatusLabel"
-	statusLabel.Size = UDim2.new(1, -10, 1, 0)
-	statusLabel.Position = UDim2.new(0, 5, 0, 0)
-	statusLabel.Text = "Ready"
-	statusLabel.BackgroundTransparency = 1
-	statusLabel.TextColor3 = CONFIG.SECONDARY_TEXT_COLOR
-	statusLabel.Font = Enum.Font.Gotham
-	statusLabel.TextSize = 10
-	statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-	statusLabel.Parent = statusFrame
-
-	-- Signature Label
-	signatureLabel = Instance.new("TextLabel")
-	signatureLabel.Name = "SignatureLabel"
-	signatureLabel.Size = UDim2.new(1, -20, 0, 15)
-	signatureLabel.Position = UDim2.new(0, 10, 1, -20)
-	signatureLabel.Text = "By: xXHaNdEROXx TG@MK14CFG"
-	signatureLabel.BackgroundTransparency = 1
-	signatureLabel.TextColor3 = CONFIG.SECONDARY_TEXT_COLOR
-	signatureLabel.Font = Enum.Font.Gotham
-	signatureLabel.TextSize = 8
-	signatureLabel.TextTransparency = 0.5
-	signatureLabel.TextXAlignment = Enum.TextXAlignment.Center
-	signatureLabel.Parent = mainFrame
-
-	-- Sound
-	sound = Instance.new("Sound")
-	sound.Name = "ToggleSound"
-	sound.SoundId = CONFIG.SOUND_ID
-	sound.Volume = 0.5
-	sound.Parent = screenGui
-
-	-- Store status label for updates
-	_G.statusLabel = statusLabel
-end
-
--- Event Connections
-local function connectEvents(): ()
-	-- Button connections
-	toggleButton.MouseButton1Click:Connect(toggleInvisibility)
-	speedButton.MouseButton1Click:Connect(toggleSpeedBoost)
-	closeButton.MouseButton1Click:Connect(function()
-		screenGui.Enabled = false
-	end)
-
-	-- Keyboard input
-	UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
-		if gameProcessed then
-			return
-		end
-
-		if input.KeyCode == CONFIG.TOGGLE_KEY then
-			toggleInvisibility()
-		end
-	end)
-
-	-- Character respawn handling
-	player.CharacterAdded:Connect(function(character: Model)
-		resetPlayerState()
-
-		local humanoid = character:WaitForChild("Humanoid") :: Humanoid
-		playerState.originalSpeed = humanoid.WalkSpeed
-		humanoid.WalkSpeed = CONFIG.DEFAULT_SPEED
-
-		-- Clean up any existing invisible chairs
-		local invisChair = workspace:FindFirstChild("invischair")
-		if invisChair then
-			invisChair:Destroy()
-		end
-	end)
-
-	-- Handle player leaving
-	Players.PlayerRemoving:Connect(function(leavingPlayer: Player)
-		if leavingPlayer == player then
-			local invisChair = workspace:FindFirstChild("invischair")
-			if invisChair then
-				invisChair:Destroy()
-			end
-		end
-	end)
-end
-
--- Initialize
-local function initialize(): ()
-	-- Wait for character to load
-	if not player.Character then
-		player.CharacterAdded:Wait()
-	end
-
-	-- Store original speed
-	local humanoid = getHumanoid()
-	if humanoid then
-		playerState.originalSpeed = humanoid.WalkSpeed
-	end
-
-	-- Create GUI and connect events
-	createGUI()
-	connectEvents()
-
-	print("Enhanced Invisibility Script loaded successfully!")
-end
-
--- Start the script
-initialize()
+print("👻 VD Invisible V3 (Fixed) loaded!")
+print("Tekan INSERT untuk toggle")
+print("✅ Sekarang BISA GERAK & NEMBAK!")
