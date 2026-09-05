@@ -1,9 +1,13 @@
 --[[
-    Script: Auto No Cooldown Killer
-    Target: ReplicatedStorage.Remotes.Killers.Killer.CooldownEvent
+    Script: Force Spam Skill / No Cooldown Killer
+    Execute via Delta Mobile
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local localPlayer = Players.LocalPlayer
+
+-- Mencari path event cooldown secara spesifik
 local success, CooldownEvent = pcall(function()
     return ReplicatedStorage.Remotes.Killers.Killer.CooldownEvent
 end)
@@ -13,15 +17,24 @@ if not success or not CooldownEvent then
     return
 end
 
--- Notifikasi kecil (opsional, kalau executor support)
-print("[INFO] No Cooldown Killer berhasil diaktifkan!")
+print("=== SCRIPT NO COOLDOWN AKTIF ===")
 
--- Loop agar terus menerus memaksa cooldown menjadi 0
+-- Metode 1: Spam firesignal dengan berbagai variasi angka (0, -1, nil) secara cepat
 task.spawn(function()
     while true do
+        task.wait(0.05) -- Jeda sangat cepat agar tidak nge-crash game
         pcall(function()
             firesignal(CooldownEvent.OnClientEvent, 0)
+            firesignal(CooldownEvent.OnClientEvent, -9999)
         end)
-        task.wait(0.1) -- Jeda sepersekian detik agar tidak lag/crash
     end
 end)
+
+-- Metode 2: Cek apakah ada remote lain untuk aktivasi skill (biasanya ada SkillEvent / UseAbility)
+local successRemote, ActionEvent = pcall(function()
+    return ReplicatedStorage.Remotes.Killers.Killer.AbilityEvent -- atau sesuaikan jika ada event lain
+end)
+
+if successRemote and ActionEvent then
+    print("Action event ditemukan!")
+end
