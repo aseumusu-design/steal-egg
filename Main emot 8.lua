@@ -1,40 +1,27 @@
 --[[
-    Script: Force Spam Skill / No Cooldown Killer
-    Execute via Delta Mobile
+    Script: Universal Attribute & Cooldown Force Reset
+    Jalankan via Executor Delta
 ]]
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
-local localPlayer = Players.LocalPlayer
+local player = Players.LocalPlayer
 
--- Mencari path event cooldown secara spesifik
-local success, CooldownEvent = pcall(function()
-    return ReplicatedStorage.Remotes.Killers.Killer.CooldownEvent
-end)
+print("=== MENCOBA MEMPAKSA RESET COOLDOWN & ATRIBUT ===")
 
-if not success or not CooldownEvent then
-    warn("CooldownEvent tidak ditemukan!")
-    return
-end
-
-print("=== SCRIPT NO COOLDOWN AKTIF ===")
-
--- Metode 1: Spam firesignal dengan berbagai variasi angka (0, -1, nil) secara cepat
 task.spawn(function()
     while true do
-        task.wait(0.05) -- Jeda sangat cepat agar tidak nge-crash game
+        task.wait(0.1)
         pcall(function()
-            firesignal(CooldownEvent.OnClientEvent, 0)
-            firesignal(CooldownEvent.OnClientEvent, -9999)
+            local char = player.Character
+            if char then
+                -- Menghapus atau mereset semua atribut yang mengandung kata cooldown/cd/ability
+                for _, attr in ipairs(char:GetAttributes()) do
+                    local lowerAttr = string.lower(attr)
+                    if lowerAttr:find("cooldown") or lowerAttr:find("cd") or lowerAttr:find("ability") then
+                        char:SetAttribute(attr, 0)
+                    end
+                end
+            end
         end)
     end
 end)
-
--- Metode 2: Cek apakah ada remote lain untuk aktivasi skill (biasanya ada SkillEvent / UseAbility)
-local successRemote, ActionEvent = pcall(function()
-    return ReplicatedStorage.Remotes.Killers.Killer.AbilityEvent -- atau sesuaikan jika ada event lain
-end)
-
-if successRemote and ActionEvent then
-    print("Action event ditemukan!")
-end
